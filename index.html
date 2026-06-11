@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travian Command Center</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.css">
+    <style>
+        :root { --primary: #2c3e50; --secondary: #18bc9c; --bg: #f4f6f8; --text: #333; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1, h2 { color: var(--primary); margin-top: 0; }
+        .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; font-size: 0.9em; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: var(--primary); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background-color: #1a252f; }
+        .btn-success { background-color: var(--secondary); }
+        .btn-success:hover { background-color: #128f76; }
+        .btn-danger { background-color: #e74c3c; }
+        .btn-danger:hover { background-color: #c0392b; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: var(--primary); color: white; }
+        tr:hover { background-color: #f1f1f1; cursor: pointer; }
+        .toolbar { display: flex; gap: 10px; margin-top: 10px; }
+        #gantt-target { overflow-x: auto; margin-top: 20px; }
+        
+        /* Password Overlay */
+        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--primary); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .auth-box { background: white; padding: 30px; border-radius: 8px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+    <div id="auth-overlay">
+        <div class="auth-box">
+            <h2>Alliance Login</h2>
+            <input type="password" id="password-input" placeholder="Enter Password" style="margin-bottom: 15px;">
+            <button onclick="checkPassword()">Access Command Center</button>
+            <p id="auth-error" style="color: red; display: none; margin-top: 10px;">Incorrect Password</p>
+        </div>
+    </div>
+
+    <div class="container" id="app-content" style="display: none;">
+        <h1>⚔️ Travian Command Center</h1>
+
+        <div class="panel">
+            <h2>1. Target & Server Settings</h2>
+            <div class="grid-form">
+                <div><label>Target X</label><input type="number" id="tx" value="0"></div>
+                <div><label>Target Y</label><input type="number" id="ty" value="0"></div>
+                <div><label>Arrival Time</label><input type="datetime-local" id="arrival-time"></div>
+                <div><label>Server Speed</label>
+                    <select id="server-speed">
+                        <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="5">5x</option>
+                    </select>
+                </div>
+                <div><label>Map Size (Bounds)</label><input type="number" id="map-size" value="400"></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>2. Launching Villages Manager</h2>
+            <div class="grid-form">
+                <div><label>Player / Village</label><input type="text" id="v-name" placeholder="E.g., PlayerA - 01"></div>
+                <div><label>Origin X</label><input type="number" id="v-x" value="0"></div>
+                <div><label>Origin Y</label><input type="number" id="v-y" value="0"></div>
+                <div><label>Slowest Unit Speed</label>
+                    <select id="v-speed">
+                        <option value="3">3 (Catapult)</option><option value="4">4 (Ram/Chief)</option>
+                        <option value="5">5 (Praetorian)</option><option value="6">6 (Axe/Swordsman)</option>
+                    </select>
+                </div>
+                <div><label>TS Level</label><input type="number" id="v-ts" value="0" min="0" max="20"></div>
+            </div>
+            <div class="toolbar">
+                <button onclick="addVillage()">➕ Add Attacker</button>
+                <button class="btn-danger" onclick="clearList()">🗑 Clear List</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>3. Launch Schedule & Timeline</h2>
+            <table id="schedule-table">
+                <thead>
+                    <tr><th>Player/Village</th><th>Coords</th><th>Dist</th><th>Duration</th><th>Launch Time</th></tr>
+                </thead>
+                <tbody id="table-body"></tbody>
+            </table>
+            <div id="gantt-target"></div>
+        </div>
+
+        <div class="panel toolbar">
+            <button class="btn-success" onclick="copyToClipboard()">📋 Copy Plan for Discord</button>
+            <button class="btn-success" onclick="exportConfig()">💾 Save Config (.json)</button>
+            <input type="file" id="import-file" style="display:none;" onchange="importConfig(event)" accept=".json">
+            <button class="btn-success" onclick="document.getElementById('import-file').click()">📂 Load Config</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.min.js"></script>
+    <script>
+        // --- APP STATE ---
+        let villages = [];
+        let ganttChart = null;
+
+        // --- 0. SECURITY & INIT ---
+        function checkPassword() {
+            const pwd = document.getElementById('password-input').value;
+            // CHANGE THIS PASSWORD HERE:
+            if (pwd === "iamnoob") {
+                document.getElementById('auth-overlay').style.display = 'none';
+                document.getElementById('app-content').style.display = 'block';
+                
+                // Set default datetime to tomorrow
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                tomorrow.setHours(12, 0, 0, 0);
+                document.getElementById('arrival-time').value = tomorrow.toISOString().slice(0, 16);
+            } else {
+                document.getElementById('auth-error').style.display = 'block';
+            }
+        }
+
+        // --- 1. CORE LOGIC ---
+        function calculateSchedule() {
+            const tx = parseInt(document.getElementById('tx').value);
+            const ty = parseInt(document.getElementById('ty').value);
+            const mapSize = parseInt(document.getElementById('map-size').value);
+            const serverSpeed = parseInt(document.getElementById('server-speed').value);
+            const arrivalInput = document.getElementById('arrival-time').value;
+            const arrivalDate = new Date(arrivalInput);
+
+            if (!arrivalInput || isNaN(arrivalDate.getTime())) return;
+
+            villages.forEach(v => {
+                // Toroidal Grid Wrapping
+                let dx = Math.abs(v.x - tx);
+                let dy = Math.abs(v.y - ty);
+                const gridWidth = 2 * mapSize + 1;
+                
+                if (dx > mapSize) dx = gridWidth - dx;
+                if (dy > mapSize) dy = gridWidth - dy;
+                
+                v.distance = Math.sqrt(dx*dx + dy*dy);
+
+                // Tournament Square Mechanics
+                const actualBaseSpeed = v.speed * serverSpeed;
+                let totalHours = 0;
+
+                if (v.distance <= 20) {
+                    totalHours = v.distance / actualBaseSpeed;
+                } else {
+                    const tsMult = 1.0 + (0.10 * v.ts);
+                    const boostedSpeed = actualBaseSpeed * tsMult;
+                    totalHours = (20 / actualBaseSpeed) + ((v.distance - 20) / boostedSpeed);
+                }
+
+                const totalSeconds = Math.round(totalHours * 3600);
+                v.launchTime = new Date(arrivalDate.getTime() - (totalSeconds * 1000));
+                
+                // Humanize duration
+                const h = Math.floor(totalSeconds / 3600);
+                const m = Math.floor((totalSeconds % 3600) / 60);
+                const s = totalSeconds % 60;
+                v.durationStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            });
+
+            // Sort by earliest launch
+            villages.sort((a, b) => a.launchTime - b.launchTime);
+            updateUI(arrivalDate);
+        }
+
+        function addVillage() {
+            const name = document.getElementById('v-name').value || `Village ${villages.length + 1}`;
+            const x = parseInt(document.getElementById('v-x').value);
+            const y = parseInt(document.getElementById('v-y').value);
+            const speed = parseInt(document.getElementById('v-speed').value);
+            const ts = parseInt(document.getElementById('v-ts').value);
+
+            villages.push({ id: Date.now().toString(), name, x, y, speed, ts });
+            
+            // Reset fields
+            document.getElementById('v-name').value = '';
+            document.getElementById('v-x').value = '0';
+            document.getElementById('v-y').value = '0';
+            
+            calculateSchedule();
+        }
+
+        // --- 2. UI UPDATES ---
+        function updateUI(targetDate) {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+            
+            const ganttTasks = [];
+
+            villages.forEach((v, index) => {
+                // Table update
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${v.name}</td>
+                    <td>(${v.x}|${v.y})</td>
+                    <td>${v.distance.toFixed(2)}</td>
+                    <td>${v.durationStr}</td>
+                    <td><strong>${v.launchTime.toLocaleString()}</strong></td>
+                `;
+                tbody.appendChild(tr);
+
+                // Gantt task generation
+                ganttTasks.push({
+                    id: v.id,
+                    name: `${v.name} -> Target`,
+                    start: v.launchTime.toISOString(),
+                    end: targetDate.toISOString(),
+                    progress: 100,
+                    custom_class: v.speed === 3 ? 'bar-catapult' : 'bar-standard'
+                });
+            });
+
+            // Update Gantt Chart
+            if (ganttTasks.length > 0) {
+                document.getElementById('gantt-target').innerHTML = '';
+                ganttChart = new Gantt("#gantt-target", ganttTasks, {
+                    header_height: 50, column_width: 30, step: 24, view_modes: ['Quarter Day', 'Half Day', 'Day'],
+                    bar_height: 20, bar_corner_radius: 3, arrow_curve: 5, padding: 18, view_mode: 'Quarter Day'
+                });
+            } else {
+                document.getElementById('gantt-target').innerHTML = '';
+            }
+        }
+
+        // --- 3. UTILITIES ---
+        function clearList() { villages = []; updateUI(new Date()); }
+
+        function copyToClipboard() {
+            if (villages.length === 0) return alert("Plan is empty!");
+            const tx = document.getElementById('tx').value;
+            const ty = document.getElementById('ty').value;
+            let text = `⚔️ **TRAVIAN ATTACK PLAN** | Target: (${tx}|${ty})\n`;
+            text += `⏰ **LANDING TIME:** ${document.getElementById('arrival-time').value.replace('T', ' ')}\n${'-'.repeat(40)}\n`;
+            
+            villages.forEach((v, i) => {
+                text += `${i+1}. 🔥 **${v.name}** (${v.x}|${v.y})\n`;
+                text += `   🚀 **SEND AT:** \`${v.launchTime.toLocaleString()}\`\n`;
+            });
+            
+            navigator.clipboard.writeText(text);
+            alert("Copied to clipboard!");
+        }
+
+        function exportConfig() {
+            const data = {
+                target: {
+                    tx: document.getElementById('tx').value, ty: document.getElementById('ty').value,
+                    arrival: document.getElementById('arrival-time').value,
+                    speed: document.getElementById('server-speed').value, map: document.getElementById('map-size').value
+                },
+                villages: villages.map(v => ({ name: v.name, x: v.x, y: v.y, speed: v.speed, ts: v.ts }))
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `Travian_Plan_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+        }
+
+        function importConfig(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = JSON.parse(e.target.result);
+                document.getElementById('tx').value = data.target.tx;
+                document.getElementById('ty').value = data.target.ty;
+                document.getElementById('arrival-time').value = data.target.arrival;
+                document.getElementById('server-speed').value = data.target.speed;
+                document.getElementById('map-size').value = data.target.map;
+                
+                villages = [];
+                data.villages.forEach(v => {
+                    villages.push({ id: Date.now().toString() + Math.random(), name: v.name, x: v.x, y: v.y, speed: v.speed, ts: v.ts });
+                });
+                calculateSchedule();
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
