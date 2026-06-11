@@ -4,32 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Travian Command Center</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.css">
     <style>
         :root { --primary: #2c3e50; --secondary: #18bc9c; --bg: #f4f6f8; --text: #333; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h2 { color: var(--primary); margin-top: 0; }
-        .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
+        .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 15px; }
         label { font-weight: bold; display: block; margin-bottom: 5px; font-size: 0.9em; }
         input, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        /* Buttons */
         button { background-color: var(--primary); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         button:hover { background-color: #1a252f; }
         .btn-success { background-color: var(--secondary); }
         .btn-success:hover { background-color: #128f76; }
         .btn-danger { background-color: #e74c3c; }
         .btn-danger:hover { background-color: #c0392b; }
+        .btn-warning { background-color: #f39c12; }
+        .btn-warning:hover { background-color: #d68910; }
+        
+        /* Table */
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: var(--primary); color: white; }
+        tr { transition: background-color 0.2s; }
         tr:hover { background-color: #f1f1f1; cursor: pointer; }
-        .toolbar { display: flex; gap: 10px; margin-top: 10px; }
-        #gantt-target { overflow-x: auto; margin-top: 20px; }
+        .toolbar { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
         
         /* Password Overlay */
         #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--primary); display: flex; justify-content: center; align-items: center; z-index: 9999; }
         .auth-box { background: white; padding: 30px; border-radius: 8px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+
+        /* Custom Absolute Timeline */
+        .timeline-wrapper { background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-top: 20px; }
+        .timeline-header { display: flex; justify-content: space-between; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-bottom: 15px; font-weight: bold; color: var(--primary); font-size: 0.9em; }
+        .timeline-row { position: relative; height: 32px; margin-bottom: 8px; background: #f9f9f9; border-radius: 4px; border: 1px solid #ececec; }
+        .timeline-bar { position: absolute; right: 0; top: 0; height: 100%; border-radius: 3px; display: flex; align-items: center; color: white; font-size: 0.85em; font-weight: bold; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.15); transition: width 0.3s ease; }
+        
+        /* Bar Colors based on Unit Speed */
+        .bar-catapult { background-color: #e74c3c; } /* Red */
+        .bar-ram { background-color: #e67e22; }      /* Orange */
+        .bar-standard { background-color: #3498db; } /* Blue */
+        .bar-fast { background-color: #2ecc71; }     /* Green */
     </style>
 </head>
 <body>
@@ -51,14 +68,21 @@
             <div class="grid-form">
                 <div><label>Target X</label><input type="number" id="tx" value="0"></div>
                 <div><label>Target Y</label><input type="number" id="ty" value="0"></div>
-                <div><label>Arrival Time</label><input type="datetime-local" id="arrival-time"></div>
+                <div><label>Arrival Time</label><input type="datetime-local" id="arrival-time" step="1"></div>
                 <div><label>Server Speed</label>
                     <select id="server-speed">
-                        <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="5">5x</option>
+                        <option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="5">5x</option><option value="10">10x</option>
+                    </select>
+                </div>
+                <div><label>TS Boost / Level</label>
+                    <select id="ts-multiplier">
+                        <option value="0.2">20% (T4.4 / T4.6+)</option>
+                        <option value="0.1">10% (Classic)</option>
                     </select>
                 </div>
                 <div><label>Map Size (Bounds)</label><input type="number" id="map-size" value="400"></div>
             </div>
+            <button class="btn-success" onclick="calculateSchedule()">🔄 Save Settings & Recalculate</button>
         </div>
 
         <div class="panel">
@@ -71,25 +95,30 @@
                     <select id="v-speed">
                         <option value="3">3 (Catapult)</option><option value="4">4 (Ram/Chief)</option>
                         <option value="5">5 (Praetorian)</option><option value="6">6 (Axe/Swordsman)</option>
+                        <option value="7">7 (Imperian/Club/Spear)</option><option value="9">9 (Scout/TK)</option>
+                        <option value="10">10 (Paladin/Caesaris)</option>
                     </select>
                 </div>
                 <div><label>TS Level</label><input type="number" id="v-ts" value="0" min="0" max="20"></div>
             </div>
             <div class="toolbar">
                 <button onclick="addVillage()">➕ Add Attacker</button>
-                <button class="btn-danger" onclick="clearList()">🗑 Clear List</button>
+                <button id="btn-update" class="btn-warning" onclick="updateVillage()" style="display:none;">🔄 Update Selected</button>
+                <button id="btn-delete" class="btn-danger" onclick="deleteVillage()" style="display:none;">❌ Delete Selected</button>
+                <button class="btn-danger" onclick="clearList()" style="margin-left: auto;">🗑 Clear Full List</button>
             </div>
         </div>
 
         <div class="panel">
             <h2>3. Launch Schedule & Timeline</h2>
+            <p style="font-size: 0.85em; color: #7f8c8d;"><em>Click any row to load its data back into the manager.</em></p>
             <table id="schedule-table">
                 <thead>
-                    <tr><th>Player/Village</th><th>Coords</th><th>Dist</th><th>Duration</th><th>Launch Time</th></tr>
+                    <tr><th>Player/Village</th><th>Coords</th><th>Dist (Flds)</th><th>Travel Duration</th><th>Target Launch Time</th></tr>
                 </thead>
                 <tbody id="table-body"></tbody>
             </table>
-            <div id="gantt-target"></div>
+            <div id="timeline-target"></div>
         </div>
 
         <div class="panel toolbar">
@@ -100,25 +129,24 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.min.js"></script>
     <script>
         // --- APP STATE ---
         let villages = [];
-        let ganttChart = null;
+        let selectedVillageId = null;
 
         // --- 0. SECURITY & INIT ---
         function checkPassword() {
             const pwd = document.getElementById('password-input').value;
             // CHANGE THIS PASSWORD HERE:
-            if (pwd === "iamnoob") {
+            if (pwd === "T4-Alliance") {
                 document.getElementById('auth-overlay').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
                 
-                // Set default datetime to tomorrow
+                // Set default datetime to tomorrow noon
                 const tomorrow = new Date();
                 tomorrow.setDate(tomorrow.getDate() + 1);
                 tomorrow.setHours(12, 0, 0, 0);
-                document.getElementById('arrival-time').value = tomorrow.toISOString().slice(0, 16);
+                document.getElementById('arrival-time').value = tomorrow.toISOString().slice(0, 19); // YYYY-MM-DDTHH:MM:SS
             } else {
                 document.getElementById('auth-error').style.display = 'block';
             }
@@ -130,13 +158,14 @@
             const ty = parseInt(document.getElementById('ty').value);
             const mapSize = parseInt(document.getElementById('map-size').value);
             const serverSpeed = parseInt(document.getElementById('server-speed').value);
+            const tsMultiplierSetting = parseFloat(document.getElementById('ts-multiplier').value);
             const arrivalInput = document.getElementById('arrival-time').value;
             const arrivalDate = new Date(arrivalInput);
 
             if (!arrivalInput || isNaN(arrivalDate.getTime())) return;
 
             villages.forEach(v => {
-                // Toroidal Grid Wrapping
+                // Toroidal Grid Wrapping calculation
                 let dx = Math.abs(v.x - tx);
                 let dy = Math.abs(v.y - ty);
                 const gridWidth = 2 * mapSize + 1;
@@ -153,22 +182,24 @@
                 if (v.distance <= 20) {
                     totalHours = v.distance / actualBaseSpeed;
                 } else {
-                    const tsMult = 1.0 + (0.10 * v.ts);
+                    const tsMult = 1.0 + (tsMultiplierSetting * v.ts);
                     const boostedSpeed = actualBaseSpeed * tsMult;
                     totalHours = (20 / actualBaseSpeed) + ((v.distance - 20) / boostedSpeed);
                 }
 
-                const totalSeconds = Math.round(totalHours * 3600);
+                // TRAVIAN ROUNDING FIX: Floor the seconds, not round.
+                const totalSeconds = Math.floor(totalHours * 3600);
+                v.totalSeconds = totalSeconds;
                 v.launchTime = new Date(arrivalDate.getTime() - (totalSeconds * 1000));
                 
-                // Humanize duration
+                // Format duration string
                 const h = Math.floor(totalSeconds / 3600);
                 const m = Math.floor((totalSeconds % 3600) / 60);
                 const s = totalSeconds % 60;
                 v.durationStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             });
 
-            // Sort by earliest launch
+            // Sort chronologically
             villages.sort((a, b) => a.launchTime - b.launchTime);
             updateUI(arrivalDate);
         }
@@ -181,66 +212,145 @@
             const ts = parseInt(document.getElementById('v-ts').value);
 
             villages.push({ id: Date.now().toString(), name, x, y, speed, ts });
-            
-            // Reset fields
-            document.getElementById('v-name').value = '';
-            document.getElementById('v-x').value = '0';
-            document.getElementById('v-y').value = '0';
-            
+            resetSelection();
             calculateSchedule();
         }
 
-        // --- 2. UI UPDATES ---
+        function selectVillage(id) {
+            selectedVillageId = id;
+            const v = villages.find(val => val.id === id);
+            if (!v) return;
+            
+            document.getElementById('v-name').value = v.name;
+            document.getElementById('v-x').value = v.x;
+            document.getElementById('v-y').value = v.y;
+            document.getElementById('v-speed').value = v.speed;
+            document.getElementById('v-ts').value = v.ts;
+            
+            document.getElementById('btn-update').style.display = 'inline-block';
+            document.getElementById('btn-delete').style.display = 'inline-block';
+            
+            // Highlight active row in table
+            document.querySelectorAll('#table-body tr').forEach(tr => {
+                if(tr.dataset.id === id) tr.style.backgroundColor = '#d1f2eb';
+                else tr.style.backgroundColor = '';
+            });
+        }
+
+        function updateVillage() {
+            if (!selectedVillageId) return;
+            const v = villages.find(val => val.id === selectedVillageId);
+            if (v) {
+                v.name = document.getElementById('v-name').value || `Village`;
+                v.x = parseInt(document.getElementById('v-x').value);
+                v.y = parseInt(document.getElementById('v-y').value);
+                v.speed = parseInt(document.getElementById('v-speed').value);
+                v.ts = parseInt(document.getElementById('v-ts').value);
+            }
+            resetSelection();
+            calculateSchedule();
+        }
+
+        function deleteVillage() {
+            if (!selectedVillageId) return;
+            villages = villages.filter(v => v.id !== selectedVillageId);
+            resetSelection();
+            calculateSchedule();
+        }
+
+        function resetSelection() {
+            selectedVillageId = null;
+            document.getElementById('btn-update').style.display = 'none';
+            document.getElementById('btn-delete').style.display = 'none';
+            document.getElementById('v-name').value = '';
+            document.getElementById('v-x').value = '0';
+            document.getElementById('v-y').value = '0';
+            document.getElementById('v-ts').value = '0';
+            
+            document.querySelectorAll('#table-body tr').forEach(tr => tr.style.backgroundColor = '');
+        }
+
+        // --- 2. UI UPDATES & NATIVE TIMELINE ---
         function updateUI(targetDate) {
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
-            
-            const ganttTasks = [];
+            const timelineTarget = document.getElementById('timeline-target');
+            timelineTarget.innerHTML = '';
 
-            villages.forEach((v, index) => {
-                // Table update
+            if (villages.length === 0) return;
+
+            // 1. Build Table
+            villages.forEach((v) => {
                 const tr = document.createElement('tr');
+                tr.dataset.id = v.id;
+                tr.onclick = () => selectVillage(v.id);
+                
                 tr.innerHTML = `
-                    <td>${v.name}</td>
+                    <td><strong>${v.name}</strong></td>
                     <td>(${v.x}|${v.y})</td>
                     <td>${v.distance.toFixed(2)}</td>
                     <td>${v.durationStr}</td>
                     <td><strong>${v.launchTime.toLocaleString()}</strong></td>
                 `;
                 tbody.appendChild(tr);
-
-                // Gantt task generation
-                ganttTasks.push({
-                    id: v.id,
-                    name: `${v.name} -> Target`,
-                    start: v.launchTime.toISOString(),
-                    end: targetDate.toISOString(),
-                    progress: 100,
-                    custom_class: v.speed === 3 ? 'bar-catapult' : 'bar-standard'
-                });
             });
 
-            // Update Gantt Chart
-            if (ganttTasks.length > 0) {
-                document.getElementById('gantt-target').innerHTML = '';
-                ganttChart = new Gantt("#gantt-target", ganttTasks, {
-                    header_height: 50, column_width: 30, step: 24, view_modes: ['Quarter Day', 'Half Day', 'Day'],
-                    bar_height: 20, bar_corner_radius: 3, arrow_curve: 5, padding: 18, view_mode: 'Quarter Day'
-                });
-            } else {
-                document.getElementById('gantt-target').innerHTML = '';
-            }
+            // 2. Build Custom Absolute Precision Timeline
+            const maxSeconds = Math.max(...villages.map(v => v.totalSeconds)) || 1;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'timeline-wrapper';
+            
+            // X-Axis Header
+            const header = document.createElement('div');
+            header.className = 'timeline-header';
+            header.innerHTML = `
+                <span>Earliest Launch (-${(maxSeconds/3600).toFixed(1)}h)</span>
+                <span>Land at Target: ${targetDate.toLocaleTimeString()}</span>
+            `;
+            wrapper.appendChild(header);
+
+            // Populate Timeline Bars
+            villages.forEach(v => {
+                const widthPct = (v.totalSeconds / maxSeconds) * 100;
+                
+                let barClass = 'bar-standard';
+                if (v.speed === 3) barClass = 'bar-catapult';
+                else if (v.speed === 4) barClass = 'bar-ram';
+                else if (v.speed >= 9) barClass = 'bar-fast';
+
+                const row = document.createElement('div');
+                row.className = 'timeline-row';
+                
+                const tooltipText = `${v.name} | Send: ${v.launchTime.toLocaleTimeString()} | Dur: ${v.durationStr}`;
+                
+                row.innerHTML = `
+                    <div class="timeline-bar ${barClass}" style="width: ${widthPct}%;" title="${tooltipText}">
+                        <span style="padding-left: 10px;">${tooltipText}</span>
+                    </div>
+                `;
+                wrapper.appendChild(row);
+            });
+
+            timelineTarget.appendChild(wrapper);
         }
 
         // --- 3. UTILITIES ---
-        function clearList() { villages = []; updateUI(new Date()); }
+        function clearList() { 
+            if(confirm("Are you sure you want to clear all villages?")) {
+                villages = []; 
+                resetSelection();
+                updateUI(new Date()); 
+            }
+        }
 
         function copyToClipboard() {
             if (villages.length === 0) return alert("Plan is empty!");
             const tx = document.getElementById('tx').value;
             const ty = document.getElementById('ty').value;
+            const arrivalInput = document.getElementById('arrival-time').value.replace('T', ' ');
+            
             let text = `⚔️ **TRAVIAN ATTACK PLAN** | Target: (${tx}|${ty})\n`;
-            text += `⏰ **LANDING TIME:** ${document.getElementById('arrival-time').value.replace('T', ' ')}\n${'-'.repeat(40)}\n`;
+            text += `⏰ **LANDING TIME:** ${arrivalInput}\n${'-'.repeat(40)}\n`;
             
             villages.forEach((v, i) => {
                 text += `${i+1}. 🔥 **${v.name}** (${v.x}|${v.y})\n`;
@@ -248,7 +358,7 @@
             });
             
             navigator.clipboard.writeText(text);
-            alert("Copied to clipboard!");
+            alert("Discord formatted plan copied to clipboard!");
         }
 
         function exportConfig() {
@@ -256,7 +366,8 @@
                 target: {
                     tx: document.getElementById('tx').value, ty: document.getElementById('ty').value,
                     arrival: document.getElementById('arrival-time').value,
-                    speed: document.getElementById('server-speed').value, map: document.getElementById('map-size').value
+                    speed: document.getElementById('server-speed').value, map: document.getElementById('map-size').value,
+                    tsMult: document.getElementById('ts-multiplier').value
                 },
                 villages: villages.map(v => ({ name: v.name, x: v.x, y: v.y, speed: v.speed, ts: v.ts }))
             };
@@ -272,18 +383,24 @@
             if (!file) return;
             const reader = new FileReader();
             reader.onload = function(e) {
-                const data = JSON.parse(e.target.result);
-                document.getElementById('tx').value = data.target.tx;
-                document.getElementById('ty').value = data.target.ty;
-                document.getElementById('arrival-time').value = data.target.arrival;
-                document.getElementById('server-speed').value = data.target.speed;
-                document.getElementById('map-size').value = data.target.map;
-                
-                villages = [];
-                data.villages.forEach(v => {
-                    villages.push({ id: Date.now().toString() + Math.random(), name: v.name, x: v.x, y: v.y, speed: v.speed, ts: v.ts });
-                });
-                calculateSchedule();
+                try {
+                    const data = JSON.parse(e.target.result);
+                    document.getElementById('tx').value = data.target.tx;
+                    document.getElementById('ty').value = data.target.ty;
+                    document.getElementById('arrival-time').value = data.target.arrival;
+                    document.getElementById('server-speed').value = data.target.speed;
+                    document.getElementById('map-size').value = data.target.map;
+                    if (data.target.tsMult) document.getElementById('ts-multiplier').value = data.target.tsMult;
+                    
+                    villages = [];
+                    data.villages.forEach(v => {
+                        villages.push({ id: Date.now().toString() + Math.random(), name: v.name, x: v.x, y: v.y, speed: v.speed, ts: v.ts });
+                    });
+                    resetSelection();
+                    calculateSchedule();
+                } catch(err) {
+                    alert("Invalid Configuration File.");
+                }
             };
             reader.readAsText(file);
         }
